@@ -166,7 +166,7 @@ public class Main {
 
         //Räknar ut medelvärdet på alla priser och skriver ut det
         double sumSekPerKWhToÖre = (sumSekPerKWh / stats.getCount()) * 100.0;
-        System.out.printf("Medelpris: %.2f öre%n", sumSekPerKWhToÖre);
+        System.out.printf("Medelpris: %s öre%n", oreFmt.format(sumSekPerKWhToÖre));;
         if (priser.isEmpty())
             System.out.println("Ingen data");
 
