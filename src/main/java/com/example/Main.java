@@ -5,7 +5,9 @@ import com.example.api.ElpriserAPI;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
@@ -42,7 +44,6 @@ public class Main {
         boolean sorted = false;
 
 
-
         //Kollar vilken zon som skickas in och om den är giltig
         for (int i = 0; i < args.length - 1; i++) {
             if ("--zone".equals(args[i])) {
@@ -57,6 +58,7 @@ public class Main {
 
         ElpriserAPI.Prisklass zoneNumber = zone.equals("SE1") ? SE1 : zone.equals("SE2") ? SE2 : zone.equals("SE3") ? SE3 : zone.equals("SE4") ? SE4 : null;
 
+
         //Kollar datum som skickas in och om det är giltigt
         for (int i = 0; i < args.length - 1; i++) {
             if ("--date".equals(args[i])) {
@@ -64,11 +66,11 @@ public class Main {
             }
         }
 
-
         boolean validDate = checkValidDate(date);
         if (!validDate) {
             System.out.println("Invalid date format. Use YYYY-MM-DD");
         }
+
 
         //Kollar om sorted kommandot skickas in
         for (String a : args) {
@@ -76,6 +78,7 @@ public class Main {
                 sorted = true;
             }
         }
+
 
         //Kollar om charging kommandot skickas in och vilket span som ska kollas
         for (int i = 0; i < args.length - 1; i++) {
@@ -99,13 +102,13 @@ public class Main {
                 .mapToDouble(ElpriserAPI.Elpris::sekPerKWh)
                 .sum();
 
+
         //Läser in hur många priser som läses in för att kunna dela och få medelvärde
         var stats = priser.stream()
                 .mapToDouble(ElpriserAPI.Elpris::sekPerKWh)
                 .summaryStatistics();
 
-        //Kollar om första tiden är efter 13 för att läsa in nästa dag
-        boolean after13 = !priser.isEmpty() && priser.get(0).timeStart().getHour() > 13;
+
 
         //Setup för utskriftsformat
         DateTimeFormatter hhmm = DateTimeFormatter.ofPattern("HH.mm");
@@ -121,13 +124,6 @@ public class Main {
                         Collectors.averagingDouble(ElpriserAPI.Elpris::sekPerKWh)
                 ));
 
-        //Lista av alla tider och priser
-        List<String> tiderOchPriser = IntStream.range(0, 24)
-                .filter(h -> medelPerTimme.containsKey(h))
-                .mapToObj(h -> String.format("%02d-%02d %s öre",
-                        h, (h + 1) % 24,
-                        oreFmt.format(medelPerTimme.get(h) * 100.0)))
-                .toList();
 
         //Hittar och skriver ut högst pris
         var maxPris = medelPerTimme.entrySet().stream()
@@ -139,6 +135,7 @@ public class Main {
                     oreFmt.format(maxPris.getValue() * 100.0));
         }
 
+
         //Hittar och skriver ut minst pris
         var minPris = medelPerTimme.entrySet().stream()
                 .min(java.util.Map.Entry.comparingByValue())
@@ -148,6 +145,7 @@ public class Main {
                     minPris.getKey(), (minPris.getKey() + 1) % 24,
                     oreFmt.format(minPris.getValue() * 100.0));
         }
+
 
         //Sorterar priser och skriver ut dem i fallande ordning
         if (sorted) {
@@ -160,6 +158,7 @@ public class Main {
             System.out.println(tiderOchPriserSorterade);
         }
 
+
         //Räknar ut medelvärdet på alla priser och skriver ut det
         double sumSekPerKWhToÖre = (sumSekPerKWh / stats.getCount()) * 100.0;
         System.out.printf("Medelpris: %.2f öre%n", sumSekPerKWhToÖre);
@@ -167,6 +166,7 @@ public class Main {
             System.out.println("Ingen data");
 
 
+        //Gör en lista av dagens och morgondagens priser när morgondagen finns tillgänglig
         var allaPriser = new java.util.ArrayList<>(priser);
         if (zoneNumber != null && validDate) {
             var priserImorgon = elpriserAPI.getPriser(LocalDate.parse(date).plusDays(1), zoneNumber);
@@ -176,26 +176,34 @@ public class Main {
             }
         }
 
-        System.out.println(allaPriser);
+
+        //Räknar ut medelpris per timme
         var timMap = allaPriser.stream()
                 .collect(java.util.stream.Collectors.groupingBy(
                         p -> p.timeStart().withMinute(0).withSecond(0).withNano(0),
                         java.util.stream.Collectors.averagingDouble(ElpriserAPI.Elpris::sekPerKWh)
                 ));
 
+        //Sätter alla medelpriser i timordning även över midnatt
         List<Double> hourly = timMap.entrySet().stream()
                 .sorted(java.util.Map.Entry.comparingByKey())
                 .map(java.util.Map.Entry::getValue)
                 .toList();
 
+        //Lista som håller datumen till timmarna
+        List<ZonedDateTime> hoursList = timMap.entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey())
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+
 
         //Räknar ut bästa chargingspanet över 2, 4 och 8 timmar
         if (chargingSpan.equals("2h")) {
-            findBestStart(hourly, 2);
+            findBestStart(hoursList, hourly, 2);
         } else if (chargingSpan.equals("4h")) {
-            findBestStart(hourly, 4);
+            findBestStart(hoursList, hourly, 4);
         } else if (chargingSpan.equals("8h")) {
-            findBestStart(hourly, 8);
+            findBestStart(hoursList, hourly, 8);
         }
 
 
@@ -221,19 +229,19 @@ public class Main {
 
     }
 
-    public static int findBestStart(java.util.List<Double> hourly, int h) {
-        if (hourly == null || hourly.size() < h || h <= 0) return -1;
+    public static java.time.ZonedDateTime findBestStart(java.util.List<java.time.ZonedDateTime> times, java.util.List<Double> hourly, int h) {
+        if (times == null || hourly == null || times.size() < h || hourly.size() < h || h <= 0) return null;
 
         double windowSum = 0.0;
         for (int i = 0; i < h; i++) windowSum += hourly.get(i);
         double minSum = windowSum;
-        int bestStart = 0;
+        int bestStartIndex = 0;
 
         for (int i = h; i < hourly.size(); i++) {
             windowSum += hourly.get(i) - hourly.get(i - h);
             if (windowSum < minSum) {
                 minSum = windowSum;
-                bestStart = i - h + 1;
+                bestStartIndex = i - h + 1;
             }
         }
 
@@ -241,9 +249,13 @@ public class Main {
         var oreFmt = new java.text.DecimalFormat("0.00", sv);
         double meanBest = minSum / h;
 
-        System.out.printf("Påbörja laddning kl %02d:00%nMedelpris för fönster: %s öre%n",
-                bestStart, oreFmt.format(meanBest * 100.0));
-        return bestStart;
+        java.time.ZonedDateTime startTime = times.get(bestStartIndex);
+        // Skriv ut både lokal tid och tidszon (t.ex. 2025-08-30 20:00 Europe/Stockholm)
+        var fmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm yyyy-MM-dd");
+        System.out.printf("Påbörja laddning: kl %s%nMedelpris för fönster: %s öre%n",
+                startTime.format(fmt),
+                oreFmt.format(meanBest * 100.0));
+        return startTime;
     }
 }
 
