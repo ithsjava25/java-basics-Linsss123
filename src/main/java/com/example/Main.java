@@ -109,7 +109,6 @@ public class Main {
                 .summaryStatistics();
 
 
-
         //Setup för utskriftsformat
         DateTimeFormatter hhmm = DateTimeFormatter.ofPattern("HH.mm");
         DateTimeFormatter hh = DateTimeFormatter.ofPattern("HH");
@@ -149,15 +148,21 @@ public class Main {
 
         //Sorterar priser och skriver ut dem i fallande ordning
         if (sorted) {
-            List<String> tiderOchPriserSorterade = priser.stream()
-                    .sorted(Comparator.comparingDouble(ElpriserAPI.Elpris::sekPerKWh).reversed())
-                    .map(p -> String.format("%s-%s %s öre",
-                            p.timeStart().toLocalTime().format(hhmm),
-                            p.timeEnd().toLocalTime().format(hhmm),
-                            oreFmt.format(p.sekPerKWh() * 100.0))).toList();
-            System.out.println(tiderOchPriserSorterade);
-        }
+            if (zoneNumber != null && validDate) {
+                var priserImorgon = elpriserAPI.getPriser(LocalDate.parse(date).plusDays(1), zoneNumber);
+                if (priserImorgon != null) {
+                    var imorgonPriserLista = new java.util.ArrayList<>(priserImorgon);
+                    priser.addAll(imorgonPriserLista);
+                }
+                List<String> tiderOchPriserSorterade = priser.stream()
+                        .sorted(Comparator.comparingDouble(ElpriserAPI.Elpris::sekPerKWh).reversed())
+                        .map(p -> String.format("%s-%s %s öre", p.timeStart().toLocalTime().format(hh),
+                                p.timeEnd().toLocalTime().format(hh), oreFmt
+                                        .format(p.sekPerKWh() * 100.0))).toList();
+                tiderOchPriserSorterade.forEach(System.out::println);
 
+            }
+        }
 
         //Räknar ut medelvärdet på alla priser och skriver ut det
         double sumSekPerKWhToÖre = (sumSekPerKWh / stats.getCount()) * 100.0;
@@ -210,6 +215,7 @@ public class Main {
     }
 
 
+    //Metod som skirver ut hjälpalternativ
     private static void printHelp() {
         System.out.println("Usage information");
         System.out.println("  --zone      SE1|SE2|SE3|SE4 (krävs)");
@@ -219,6 +225,8 @@ public class Main {
         System.out.println("  --help      Visa denna hjälp");
     }
 
+
+    //Metod som kollar om datumet som skickas in är rätt format
     public static boolean checkValidDate(String s) {
         try {
             LocalDate.parse(s); // ISO-8601: YYYY-MM-DD
@@ -229,6 +237,8 @@ public class Main {
 
     }
 
+
+    //Metod som kollar vilka intilliggande timmar som är bäst att ladda på
     public static java.time.ZonedDateTime findBestStart(java.util.List<java.time.ZonedDateTime> times, java.util.List<Double> hourly, int h) {
         if (times == null || hourly == null || times.size() < h || hourly.size() < h || h <= 0) return null;
 
